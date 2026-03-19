@@ -1,6 +1,6 @@
 # Antigravity Bridge API-Dokumentation (Unlimited Edition)
 
-Diese Dokumentation beschreibt die lokalen REST- und WebSocket-Schnittstellen der **Antigravity Bridge Extension (v1.0.0)**. Die Schnittstelle erlaubt es Netzwerkskripten (Python, Node.js etc.), den Antigravity VS Code Agenten zu steuern und Live-Antworten auszulesen.
+Diese Dokumentation beschreibt die lokalen REST- und WebSocket-Schnittstellen der **Antigravity Bridge Extension (v1.0.23)**. Die Schnittstelle erlaubt es Netzwerkskripten (Python, Node.js etc.), den Antigravity VS Code Agenten zu steuern und Live-Antworten auszulesen.
 
 ---
 
@@ -107,9 +107,27 @@ Fragt ab, ob asynchrone Commands in der Pipeline liegen (für Polling-Clients).
 
 ### `POST /update` (Interner Webhook)
 Nimmt neue Chat-Texte der VS-Code Webview entgegen, loggt sie als Textdatei ins Workspace-Root und broadcastet sie sofort an alle WebSocket-Zuhörer auf Port 9812 weiter.
+
+> **v1.0.23 Update:** Das `content`-Feld wird nun statisch als leerer String gesendet, um das Backend-Log vor DOM-Scraping-Artefakten zu schützen. Der `status` wechselt deterministisch auf `"completed"`, sobald die Zeichenfolge `TASK COMPLETED` mindestens **zweimal** im DOM gefunden wurde (da das erste Vorkommen nativ durch den initialen Prompt in der Chat-History existiert).
+
 - **Payload:**
   ```json
-  { "title": "Test Chat", "content": "..." }
+  { "title": "Test Chat", "content": "", "status": "processing" }
+  ```
+- **Response (200 OK):**
+  ```json
+  { "status": "received" }
+  ```
+
+### `POST /ui_injector_log` (Heartbeat & Diagnostics)
+Empfängt alle 2 Sekunden ein Lebenszeichen vom injizierten UI-Scraper, welcher den DOM-Container analysiert. Dies steuert auch den optischen Statusindikator unten rechts im Editor (Grün = Laufend, Gelb = HTTP Fehler, Rot = CORS/Netzwerk Fehler).
+Zusätzlich wird dieser Log hart in `C:\forge-os\ui_injector_heartbeat.log` geschrieben.
+- **Payload:**
+  ```json
+  { 
+    "message": "Heartbeat - Scraped DOM", 
+    "panelInfo": "Container: .interactive-session | Length: 125 chars" 
+  }
   ```
 - **Response (200 OK):**
   ```json

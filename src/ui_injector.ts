@@ -2,7 +2,16 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 
-export function patchWorkbenchHtml() {
+export function patchWorkbenchHtml(outputChannel?: vscode.OutputChannel) {
+    const log = (msg: string) => {
+        console.log(msg);
+        if (outputChannel) outputChannel.appendLine(`[${new Date().toISOString()}] ${msg}`);
+    };
+    const logErr = (msg: string) => {
+        console.error(msg);
+        if (outputChannel) outputChannel.appendLine(`[${new Date().toISOString()}] ERROR: ${msg}`);
+    };
+
     try {
         const appRoot = vscode.env.appRoot;
         // Bekannte Pfade für Antigravity/VSCode
@@ -20,17 +29,24 @@ export function patchWorkbenchHtml() {
         }
 
         if (!targetPath) {
-            console.error("Antigravity Bridge: Could not find workbench.html for patching.");
+            logErr("Antigravity Bridge: Could not find workbench.html for patching.");
             return;
         }
 
         let html = fs.readFileSync(targetPath, 'utf8');
 
-        // Verhindern, dass wir mehrfach patchen
-        const patchMark = "<!-- Antigravity Bridge Auto-Runner v1.0.2 -->";
+        // Verhindern, dass wir mehrfach (die neueste Version) patchen
+        const patchMark = "<!-- Antigravity Bridge Auto-Runner v1.0.25 -->";
         if (html.includes(patchMark)) {
-            console.log("Antigravity Bridge: Workbench is already patched.");
+            log("Antigravity Bridge: Workbench is already patched with v1.0.25.");
             return;
+        }
+
+        // Altes Script entfernen, falls vorhanden
+        const oldPatchRegex = /<!-- Antigravity Bridge Auto-Runner v1\.0\.(2|13|14|15|16|17|18|19|20|21|22|23|24) -->[\s\S]*?<\/script>/g;
+        if (oldPatchRegex.test(html)) {
+            html = html.replace(oldPatchRegex, '');
+            log("Antigravity Bridge: Removed old UI injector patch.");
         }
 
         // Sicherheits-Backup des Originals
@@ -51,30 +67,78 @@ ${patchMark}
 <script>
 (function() {
     console.log("[Antigravity Bridge] Autonomous UI Injector loaded successfully.");
-    
-    let lastChatLength = 0;
+
+    let lastByteSize = 0;
     let idleTicks = 0;
+    let initialCompletedCount = -1;
+    
+    // Optischer Polling-Indikator (Visual Feedback)
+    let indicator = document.createElement('div');
+    indicator.id = 'ag-bridge-indicator';
+    indicator.style.position = 'fixed';
+    indicator.style.bottom = '22px'; // Über der Statusbar
+    indicator.style.right = '22px';
+    indicator.style.width = '8px';
+    indicator.style.height = '8px';
+    indicator.style.borderRadius = '50%';
+    indicator.style.backgroundColor = '#00ff00';
+    indicator.style.boxShadow = '0 0 5px #00ff00';
+    indicator.style.zIndex = '9999999';
+    indicator.style.pointerEvents = 'none';
+    indicator.style.transition = 'opacity 0.3s ease-out, transform 0.1s ease-out';
+    indicator.style.opacity = '0.2';
+    document.body.appendChild(indicator);
+
     // Scraper-Loop für den Chat (jede 2 Sekunden)
     setInterval(() => {
         try {
+            // Blink-Effekt für das optische Feedback
+            indicator.style.opacity = '1';
+            indicator.style.transform = 'scale(1.5)';
+            setTimeout(() => { 
+                indicator.style.opacity = '0.2'; 
+                indicator.style.transform = 'scale(1)';
+            }, 300);
+
             // Versuche spezifische Chat-Container zu finden, ansonsten fallback auf Body
-            const panel = document.querySelector('.interactive-session') || document.querySelector('.chat-view') || document.body;
+            const interactiveSession = document.querySelector('.interactive-session');
+            const chatView = document.querySelector('.chat-view');
+            const panel = interactiveSession || chatView || document.body;
+            const containerName = interactiveSession ? '.interactive-session' : (chatView ? '.chat-view' : 'body');
+            
             if (panel) {
                 const currentText = panel.innerText || "";
-                if (Math.abs(currentText.length - lastChatLength) > 10) { // Text wächst -> Processing
-                    lastChatLength = currentText.length;
+                const currentByteSize = new Blob([currentText]).size;
+                
+                // Kontext-Wechsel oder Chat Clear detektieren
+                if (currentByteSize < lastByteSize - 20) {
+                    lastByteSize = 0;
+                    initialCompletedCount = -1;
+                }
+
+                if (currentByteSize !== lastByteSize) {
+                    lastByteSize = currentByteSize;
                     idleTicks = 0;
-                    const maskedContent = currentText.replace('TASK COMPLETED', 'T*** COMPLETED');
-                    fetch('http://localhost:5000/update', {
+                    
+                    const completedMatches = currentText.match(/TASK COMPLETED/g);
+                    const currentCompletedCount = completedMatches ? completedMatches.length : 0;
+                    
+                    if (initialCompletedCount === -1) {
+                        initialCompletedCount = currentCompletedCount;
+                    }
+                    
+                    const isCompleted = currentCompletedCount > initialCompletedCount;
+                    
+                    fetch('http://127.0.0.1:5000/update', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             title: document.title || "VS Code Auto-Title",
-                            content: maskedContent,
-                            status: maskedContent.includes("TASK COMPLETED") ? "completed" : "processing"
+                            content: "[UI Injector Update - Payload masked]", // Dummy string to satisfy backend validator while keeping logs clean
+                            status: isCompleted ? "completed" : "processing"
                         })
                     }).catch(e => {});
-                } else if (lastChatLength > 0) {
+                } else if (lastByteSize > 0) {
                     // Der automatische completed-Status nach 6 Sekunden wurde deaktiviert
                     idleTicks++;
                 }
@@ -85,7 +149,11 @@ ${patchMark}
     // Polling-Loop für Auto-Run und Auto-Allow
     setInterval(async () => {
         try {
-            const res = await fetch('http://localhost:5000/get_command');
+            const res = await fetch('http://127.0.0.1:5000/get_command');
+            
+            indicator.style.backgroundColor = res.ok ? '#00ff00' : 'yellow';
+            if (res.ok) indicator.style.boxShadow = '0 0 5px #00ff00';
+
             if (!res.ok) return;
             const state = await res.json();
             
@@ -106,7 +174,7 @@ ${patchMark}
                             setTimeout(() => {
                                 btn.click();
                                 // Teile dem Statistik-Server mit, was wir geklickt haben
-                                fetch('http://localhost:5000/track_action', {
+                                fetch('http://127.0.0.1:5000/track_action', {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' },
                                     body: JSON.stringify({ action: isRun ? 'auto_run' : 'auto_allow' })
@@ -117,6 +185,8 @@ ${patchMark}
                 });
             }
         } catch (e) {
+            indicator.style.backgroundColor = 'red';
+            indicator.style.boxShadow = '0 0 5px red';
             // Wenn der Server aus ist, stumm bleiben
         }
     }, 1500); // Checke alle 1.5 Sekunden

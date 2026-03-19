@@ -24,8 +24,12 @@ let pendingNewChat = false;
 let pendingSwitchChat: string | null = null;
 
 export function activate(context: vscode.ExtensionContext) {
+    const outputChannel = vscode.window.createOutputChannel("Antigravity Bridge");
+    context.subscriptions.push(outputChannel);
+    outputChannel.appendLine(`[${new Date().toISOString()}] Antigravity Bridge activated. Starting servers...`);
+
     // 0. Inject Code into the Webview for Auto-Run/Auto-Allow tracking
-    patchWorkbenchHtml();
+    patchWorkbenchHtml(outputChannel);
 
     // 1. WebSocket Server (Port 9812)
     wss = new WebSocket.Server({ port: 9812 }, () => {
@@ -49,6 +53,33 @@ export function activate(context: vscode.ExtensionContext) {
     // 2. HTTP Server (Port 5000)
     const app = express();
     app.use(express.json());
+
+    // --- CORS Middleware ---
+    app.use((req, res, next) => {
+        res.header('Access-Control-Allow-Origin', '*');
+        res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+        if (req.method === 'OPTIONS') {
+            res.sendStatus(200);
+            return;
+        }
+        next();
+    });
+
+    // --- API Interaction Logging Middleware ---
+    app.use((req, res, next) => {
+        const originalJson = res.json;
+        res.json = function(body) {
+            // Filter out empty polling spam
+            if (!(req.path === '/get_command' && body && body.status === 'no_command')) {
+                const logMsg = `[${new Date().toISOString()}] API ${req.method} ${req.path} | IN: ${JSON.stringify(req.body)} | OUT: ${JSON.stringify(body)}`;
+                console.log(logMsg);
+                if (outputChannel) outputChannel.appendLine(logMsg);
+            }
+            return originalJson.call(this, body);
+        };
+        next();
+    });
 
     // --- Remote Control Endpoints ---
     app.post('/send_command', async (req, res) => {
@@ -151,6 +182,25 @@ export function activate(context: vscode.ExtensionContext) {
 
     app.post('/update', (req, res) => {
         const { title = "Default Conversation", content } = req.body;
+        
+        if (outputChannel) {
+            outputChannel.appendLine(`[${new Date().toISOString()}] /update endpoint hit! Title: ${title}, Status: ${req.body.status || 'N/A'}`);
+        }
+
+        // --- GLOBAL DEBUG LOGGING ---
+        try {
+            const fallbackPath = `C:\\forge-os\\antigravity_bridge_update.log`;
+            const logEntry = `[${new Date().toISOString()}] /update received - Title: ${title}, Status: ${req.body.status || 'N/A'}\n`;
+            fs.appendFileSync(fallbackPath, logEntry);
+            
+            if (req.body) {
+                const bodyLog = JSON.stringify(req.body) + "\n";
+                fs.appendFileSync(`C:\\forge-os\\antigravity_bridge_messages.log`, bodyLog);
+            }
+        } catch (e) {
+            console.error("Failed to write global debug log", e);
+        }
+
         if (!content) {
             res.status(400).json({ error: "Missing 'content' field" });
             return;
@@ -196,9 +246,20 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     // Default Port 5000 according to swagger.yaml
-    httpServer = app.listen(5000, () => {
-        console.log("Antigravity Bridge HTTP Server started on port 5000");
-    });
+    try {
+        httpServer = app.listen(5000, () => {
+            const msg = "Antigravity Bridge HTTP Server successfully started on port 5000";
+            console.log(msg);
+            if (outputChannel) outputChannel.appendLine(`[${new Date().toISOString()}] ${msg}`);
+        }).on('error', (err: any) => {
+            const errMsg = `ERROR starting HTTP Server on port 5000: ${err.message}`;
+            console.error(errMsg);
+            if (outputChannel) outputChannel.appendLine(`[${new Date().toISOString()}] ${errMsg}`);
+            vscode.window.showErrorMessage(`Antigravity Bridge: ${errMsg}`);
+        });
+    } catch (e: any) {
+        if (outputChannel) outputChannel.appendLine(`[${new Date().toISOString()}] FATAL ERROR starting HTTP Server: ${e.message}`);
+    }
 
     context.subscriptions.push({
         dispose: () => {
