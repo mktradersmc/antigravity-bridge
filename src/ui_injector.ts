@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { autoAcceptScript } from './autoAcceptCode';
 
 export function patchWorkbenchHtml(outputChannel?: vscode.OutputChannel) {
     const log = (msg: string) => {
@@ -36,14 +37,14 @@ export function patchWorkbenchHtml(outputChannel?: vscode.OutputChannel) {
         let html = fs.readFileSync(targetPath, 'utf8');
 
         // Verhindern, dass wir mehrfach (die neueste Version) patchen
-        const patchMark = "<!-- Antigravity Bridge Auto-Runner v1.0.30 -->";
+        const patchMark = "<!-- Antigravity Bridge Auto-Runner v1.0.32 -->";
         if (html.includes(patchMark)) {
-            log("Antigravity Bridge: Workbench is already patched with v1.0.30.");
+            log("Antigravity Bridge: Workbench is already patched with v1.0.32.");
             return;
         }
 
         // Altes Script entfernen, falls vorhanden
-        const oldPatchRegex = /<!-- Antigravity Bridge Auto-Runner v1\.0\.(2|13|14|15|16|17|18|19|20|21|22|23|24|25|26|27|28|29) -->[\s\S]*?<\/script>/g;
+        const oldPatchRegex = /<!-- Antigravity Bridge Auto-Runner v1\.0\.(2|13|14|15|16|17|18|19|20|21|22|23|24|25|26|27|28|29|30|31) -->[\s\S]*?<\/script>/g;
         if (oldPatchRegex.test(html)) {
             html = html.replace(oldPatchRegex, '');
             log("Antigravity Bridge: Removed old UI injector patch.");
@@ -65,45 +66,25 @@ export function patchWorkbenchHtml(outputChannel?: vscode.OutputChannel) {
         const payload = `
 ${patchMark}
 <script>
+${autoAcceptScript}
+
 (function() {
-    console.log("[Antigravity Bridge] Autonomous UI Injector loaded successfully.");
+    console.log("[Antigravity Bridge] Autonomous UI Injector loaded successfully. (Auto Accept + Scraper)");
+
+    // Start auto-accept logic natively
+    if (typeof window.__autoAcceptStart === 'function') {
+        window.__autoAcceptStart({ isBackgroundMode: false, bannedCommands: [] });
+    }
 
     let lastByteSize = 0;
-    let idleTicks = 0;
     
-    // Optischer Polling-Indikator (Visual Feedback)
-    let indicator = document.createElement('div');
-    indicator.id = 'ag-bridge-indicator';
-    indicator.style.position = 'fixed';
-    indicator.style.bottom = '22px'; // Über der Statusbar
-    indicator.style.right = '22px';
-    indicator.style.width = '8px';
-    indicator.style.height = '8px';
-    indicator.style.borderRadius = '50%';
-    indicator.style.backgroundColor = '#00ff00';
-    indicator.style.boxShadow = '0 0 5px #00ff00';
-    indicator.style.zIndex = '9999999';
-    indicator.style.pointerEvents = 'none';
-    indicator.style.transition = 'opacity 0.3s ease-out, transform 0.1s ease-out';
-    indicator.style.opacity = '0.2';
-    document.body.appendChild(indicator);
-
     // Scraper-Loop für den Chat (jede 2 Sekunden)
     setInterval(() => {
         try {
-            // Blink-Effekt für das optische Feedback
-            indicator.style.opacity = '1';
-            indicator.style.transform = 'scale(1.5)';
-            setTimeout(() => { 
-                indicator.style.opacity = '0.2'; 
-                indicator.style.transform = 'scale(1)';
-            }, 300);
-
             // Versuche spezifische Chat-Container zu finden, ansonsten fallback auf Body
             const interactiveSession = document.querySelector('.interactive-session');
             const chatView = document.querySelector('.chat-view');
             const panel = interactiveSession || chatView || document.body;
-            const containerName = interactiveSession ? '.interactive-session' : (chatView ? '.chat-view' : 'body');
             
             if (panel) {
                 const currentText = panel.innerText || "";
@@ -116,7 +97,6 @@ ${patchMark}
 
                 if (currentByteSize !== lastByteSize) {
                     lastByteSize = currentByteSize;
-                    idleTicks = 0;
                     
                     fetch('http://127.0.0.1:5000/update', {
                         method: 'POST',
@@ -127,58 +107,10 @@ ${patchMark}
                             status: "processing"
                         })
                     }).catch(e => {});
-                } else if (lastByteSize > 0) {
-                    // Der automatische completed-Status nach 6 Sekunden wurde deaktiviert
-                    idleTicks++;
                 }
             }
         } catch(e) {}
     }, 2000);
-
-    // Polling-Loop für Auto-Run und Auto-Allow
-    setInterval(async () => {
-        try {
-            const res = await fetch('http://127.0.0.1:5000/get_command');
-            
-            indicator.style.backgroundColor = res.ok ? '#00ff00' : 'yellow';
-            if (res.ok) indicator.style.boxShadow = '0 0 5px #00ff00';
-
-            if (!res.ok) return;
-            const state = await res.json();
-            
-            if (state.auto_run || state.auto_allow) {
-                // Suche alle Buttons im DOM der Agent Side-Panel Webview
-                const buttons = document.querySelectorAll('button');
-                buttons.forEach(btn => {
-                    const text = btn.textContent ? btn.textContent.trim() : '';
-                    const isRun = text === 'Run' || text === 'Ausführen';
-                    const isAllow = text === 'Allow' || text === 'Zulassen';
-                    
-                    if ((isRun && state.auto_run) || (isAllow && state.auto_allow)) {
-                        // Verhindern, dass der gleiche Button 100x geklickt wird
-                        if (!btn.disabled && !btn.dataset.bridgeClicked) {
-                            btn.dataset.bridgeClicked = "true";
-                            console.log("[Antigravity Bridge] Autonomous Click executed: " + text);
-                            
-                            setTimeout(() => {
-                                btn.click();
-                                // Teile dem Statistik-Server mit, was wir geklickt haben
-                                fetch('http://127.0.0.1:5000/track_action', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ action: isRun ? 'auto_run' : 'auto_allow' })
-                                }).catch(e => {});
-                            }, 400); // 400ms Delay für ein responsiveres UI Feeling
-                        }
-                    }
-                });
-            }
-        } catch (e) {
-            indicator.style.backgroundColor = 'red';
-            indicator.style.boxShadow = '0 0 5px red';
-            // Wenn der Server aus ist, stumm bleiben
-        }
-    }, 1500); // Checke alle 1.5 Sekunden
 })();
 </script>
 `;

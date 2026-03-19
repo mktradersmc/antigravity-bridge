@@ -23,6 +23,7 @@ let queuedCommands: string[] = [];
 let pendingNewChat = false;
 let pendingSwitchChat: string | null = null;
 let previousChatTexts: { [title: string]: string } = {};
+let initialCompletedCounts: { [title: string]: number } = {};
 
 export function activate(context: vscode.ExtensionContext) {
     const outputChannel = vscode.window.createOutputChannel("Antigravity Bridge");
@@ -193,11 +194,26 @@ export function activate(context: vscode.ExtensionContext) {
         const lastText = previousChatTexts[title] || "";
         let newContent = "";
 
-        if (content.length > lastText.length) {
-            newContent = content.substring(lastText.length);
-        } else if (content.length < lastText.length - 20) {
-            // Chat clear detected
+        // Berechne das exakte Text-Delta (Ignoriert Header/Footer-Wrappers die gleich bleiben)
+        if (lastText === "") {
             newContent = content;
+        } else if (content.length < lastText.length - 100) {
+            newContent = content; // Chat wurde gelöscht/Context gewechselt
+            initialCompletedCounts[title] = undefined as any;
+        } else {
+            let prefixLen = 0;
+            const minLen = Math.min(lastText.length, content.length);
+            while (prefixLen < minLen && lastText[prefixLen] === content[prefixLen]) {
+                prefixLen++;
+            }
+            
+            let suffixLen = 0;
+            const maxSuffix = Math.min(lastText.length - prefixLen, content.length - prefixLen);
+            while (suffixLen < maxSuffix && lastText[lastText.length - 1 - suffixLen] === content[content.length - 1 - suffixLen]) {
+                suffixLen++;
+            }
+            
+            newContent = content.substring(prefixLen, content.length - suffixLen);
         }
 
         previousChatTexts[title] = content;
@@ -207,22 +223,27 @@ export function activate(context: vscode.ExtensionContext) {
             return;
         }
 
-        // Zähle TASK COMPLETED im gesamten Content (das erste Mal ist im Prompt)
-        const completedMatches = content.match(/TASK COMPLETED/g);
-        const isCompleted = completedMatches && completedMatches.length > 1;
+        // Neues Verhalten nach Benutzer-Wunsch: Sofort "completed", wenn "TASK COMPLETED" zumindest 1x vorkommt
+        const isCompleted = content.includes("TASK COMPLETED");
         const currentStatus = isCompleted ? "completed" : "executing";
 
         const broadcastData = {
             type: "agent_response",
             status: currentStatus,
-            content: newContent,
+            content: newContent.trim(),
             timestamp: new Date().toISOString()
         };
 
         // 1. Broadcast über WebSocket (Live-Stream für externe Appliance)
         broadcast(broadcastData);
 
-        const broadcastPayloadStr = JSON.stringify(broadcastData);
+        // Logging mit abgeschnittenem Content (ersten 30 Zeichen)
+        const logContent = broadcastData.content.length > 30 
+            ? broadcastData.content.substring(0, 30) + "..." 
+            : broadcastData.content;
+        const logData = { ...broadcastData, content: logContent };
+        const broadcastPayloadStr = JSON.stringify(logData);
+        
         console.log(`[Antigravity Bridge] BROADCAST: ${broadcastPayloadStr}`);
         if (outputChannel) {
             outputChannel.appendLine(`[${new Date().toISOString()}] BROADCAST: ${broadcastPayloadStr}`);
