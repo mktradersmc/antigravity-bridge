@@ -85,20 +85,21 @@ export function activate(context: vscode.ExtensionContext) {
 
     // --- Remote Control Endpoints ---
     app.post('/send_command', async (req, res) => {
-        const { text } = req.body;
+        const { text, command_id } = req.body;
         if (!text) {
             res.status(400).json({ error: "Missing required 'text' field" });
             return;
         }
 
         // Sende Initial-Event an Appliance über WebSocket
+        // command_id wird direkt aus dem Request durchgereicht
         broadcast({
             type: "task_started",
             status: "executing",
+            command_id: command_id || null,
             command: text,
             content: text,
-            timestamp: new Date().toISOString(),
-            command_id: "cmd_" + Date.now().toString()
+            timestamp: new Date().toISOString()
         });
 
         try {
@@ -122,10 +123,11 @@ export function activate(context: vscode.ExtensionContext) {
             stats.remoteCommands++;
             stats.lastUsed = new Date().toISOString();
             
-            // Rückgabe im 1:1 API Format der Original-Erweiterung
+            // Rückgabe mit command_id Echo
             res.json({ 
                 status: "executing", 
                 position: 1, 
+                command_id: command_id || null,
                 usage: { 
                     remoteCommands: stats.remoteCommands, 
                     freeRemaining: -1 // Unlimited!
@@ -223,6 +225,12 @@ export function activate(context: vscode.ExtensionContext) {
             return;
         }
 
+        // command_id aus kumulativem Content extrahieren:
+        // Suche den letzten [sf:xxxxxxxx]-Tag im gesamten Gesprächstext
+        const sfTagMatch = content.match(/\[sf:([a-f0-9\-]{8,})\]/g);
+        const lastTag = sfTagMatch ? sfTagMatch[sfTagMatch.length - 1] : null;
+        const parsedCommandId = lastTag ? lastTag.slice(4, -1) : null;
+
         // Neues Verhalten nach Benutzer-Wunsch: Sofort "completed", wenn "TASK COMPLETED" zumindest 1x vorkommt
         const isCompleted = content.includes("TASK COMPLETED");
         const currentStatus = isCompleted ? "completed" : "executing";
@@ -230,6 +238,7 @@ export function activate(context: vscode.ExtensionContext) {
         const broadcastData = {
             type: "agent_response",
             status: currentStatus,
+            command_id: parsedCommandId,
             content: newContent.trim(),
             timestamp: new Date().toISOString()
         };

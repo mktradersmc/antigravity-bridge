@@ -1,9 +1,0 @@
-node_modules/
-dist/
-out/
-.vscode-test/
-*.vsix
-extracted-vsix/
-.env
-.DS_Store
-*.log
