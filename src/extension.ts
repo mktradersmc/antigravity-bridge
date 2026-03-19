@@ -22,6 +22,7 @@ let stats = {
 let queuedCommands: string[] = [];
 let pendingNewChat = false;
 let pendingSwitchChat: string | null = null;
+let previousChatTexts: { [title: string]: string } = {};
 
 export function activate(context: vscode.ExtensionContext) {
     const outputChannel = vscode.window.createOutputChannel("Antigravity Bridge");
@@ -184,48 +185,47 @@ export function activate(context: vscode.ExtensionContext) {
         const { title = "Default Conversation", content } = req.body;
         
         // Silently drop empty content to prevent spam from old UI injectors
-        if (!content || content.trim() === "") {
+        if (!content || typeof content !== 'string' || content.trim() === "") {
             res.json({ status: "ignored_empty" });
             return;
         }
 
-        if (outputChannel) {
-            outputChannel.appendLine(`[${new Date().toISOString()}] /update endpoint hit! Title: ${title}, Status: ${req.body.status || 'N/A'}`);
+        const lastText = previousChatTexts[title] || "";
+        let newContent = "";
+
+        if (content.length > lastText.length) {
+            newContent = content.substring(lastText.length);
+        } else if (content.length < lastText.length - 20) {
+            // Chat clear detected
+            newContent = content;
         }
 
-        // --- GLOBAL DEBUG LOGGING ---
-        try {
-            const fallbackPath = `C:\\forge-os\\antigravity_bridge_update.log`;
-            const logEntry = `[${new Date().toISOString()}] /update received - Title: ${title}, Status: ${req.body.status || 'N/A'}\n`;
-            fs.appendFileSync(fallbackPath, logEntry);
-            
-            if (req.body) {
-                const bodyLog = JSON.stringify(req.body) + "\n";
-                fs.appendFileSync(`C:\\forge-os\\antigravity_bridge_messages.log`, bodyLog);
-            }
-        } catch (e) {
-            console.error("Failed to write global debug log", e);
+        previousChatTexts[title] = content;
+
+        if (newContent.trim().length === 0) {
+            res.json({ status: "ignored_no_new_content" });
+            return;
         }
+
+        // Zähle TASK COMPLETED im gesamten Content (das erste Mal ist im Prompt)
+        const completedMatches = content.match(/TASK COMPLETED/g);
+        const isCompleted = completedMatches && completedMatches.length > 1;
+        const currentStatus = isCompleted ? "completed" : "executing";
+
+        const broadcastData = {
+            type: "agent_response",
+            status: currentStatus,
+            content: newContent,
+            timestamp: new Date().toISOString()
+        };
 
         // 1. Broadcast über WebSocket (Live-Stream für externe Appliance)
-        broadcast({
-            type: "agent_response",
-            status: req.body.status || "processing",
-            content: content,
-            timestamp: new Date().toISOString()
-        });
+        broadcast(broadcastData);
 
-        // 2. Logging in den Workspace (identisches Verhalten zum Original)
-        const wsFolders = vscode.workspace.workspaceFolders;
-        if (wsFolders && wsFolders.length > 0) {
-            const rootPath = wsFolders[0].uri.fsPath;
-            const safeTitle = title.replace(/[^a-z0-9]/gi, '_');
-            const logPath = path.join(rootPath, `content_log_${safeTitle}.txt`);
-            fs.appendFileSync(logPath, content + "\n");
-            
-            // 3. Logge alle JSON-Nachrichten
-            const jsonLogPath = path.join(rootPath, `update_messages.log`);
-            fs.appendFileSync(jsonLogPath, JSON.stringify(req.body) + "\n");
+        const broadcastPayloadStr = JSON.stringify(broadcastData);
+        console.log(`[Antigravity Bridge] BROADCAST: ${broadcastPayloadStr}`);
+        if (outputChannel) {
+            outputChannel.appendLine(`[${new Date().toISOString()}] BROADCAST: ${broadcastPayloadStr}`);
         }
 
         res.json({ status: "received" });

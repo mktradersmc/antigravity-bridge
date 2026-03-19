@@ -36,14 +36,14 @@ export function patchWorkbenchHtml(outputChannel?: vscode.OutputChannel) {
         let html = fs.readFileSync(targetPath, 'utf8');
 
         // Verhindern, dass wir mehrfach (die neueste Version) patchen
-        const patchMark = "<!-- Antigravity Bridge Auto-Runner v1.0.28 -->";
+        const patchMark = "<!-- Antigravity Bridge Auto-Runner v1.0.30 -->";
         if (html.includes(patchMark)) {
-            log("Antigravity Bridge: Workbench is already patched with v1.0.28.");
+            log("Antigravity Bridge: Workbench is already patched with v1.0.30.");
             return;
         }
 
         // Altes Script entfernen, falls vorhanden
-        const oldPatchRegex = /<!-- Antigravity Bridge Auto-Runner v1\.0\.(2|13|14|15|16|17|18|19|20|21|22|23|24|25|26|27) -->[\s\S]*?<\/script>/g;
+        const oldPatchRegex = /<!-- Antigravity Bridge Auto-Runner v1\.0\.(2|13|14|15|16|17|18|19|20|21|22|23|24|25|26|27|28|29) -->[\s\S]*?<\/script>/g;
         if (oldPatchRegex.test(html)) {
             html = html.replace(oldPatchRegex, '');
             log("Antigravity Bridge: Removed old UI injector patch.");
@@ -68,7 +68,6 @@ ${patchMark}
 (function() {
     console.log("[Antigravity Bridge] Autonomous UI Injector loaded successfully.");
 
-    let lastText = "";
     let lastByteSize = 0;
     let idleTicks = 0;
     
@@ -112,34 +111,22 @@ ${patchMark}
                 
                 // Kontext-Wechsel oder Chat Clear detektieren
                 if (currentByteSize < lastByteSize - 20) {
-                    lastText = "";
                     lastByteSize = 0;
                 }
 
-                if (currentText.length > lastText.length) {
-                    const newText = currentText.substring(lastText.length).trim();
-                    lastText = currentText;
+                if (currentByteSize !== lastByteSize) {
                     lastByteSize = currentByteSize;
                     idleTicks = 0;
                     
-                    if (newText.length > 0) {
-                        // Logge nur den NEUEN content
-                        console.log("[Antigravity Chat] " + newText);
-                        
-                        // Checke, ob der Chat GANZ am Ende ein TASK COMPLETED hat
-                        // Wir erlauben Whitespace oder Newlines am Ende
-                        const isCompleted = /TASK COMPLETED\s*$/.test(currentText);
-                        
-                        fetch('http://127.0.0.1:5000/update', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                title: document.title || "VS Code Auto-Title",
-                                content: newText,
-                                status: isCompleted ? "completed" : "processing"
-                            })
-                        }).catch(e => {});
-                    }
+                    fetch('http://127.0.0.1:5000/update', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            title: document.title || "VS Code Auto-Title",
+                            content: currentText,
+                            status: "processing"
+                        })
+                    }).catch(e => {});
                 } else if (lastByteSize > 0) {
                     // Der automatische completed-Status nach 6 Sekunden wurde deaktiviert
                     idleTicks++;
