@@ -239,8 +239,12 @@ export function activate(context: vscode.ExtensionContext) {
             return;
         }
 
-        // Neues Verhalten nach Benutzer-Wunsch: Sofort "completed", wenn "TASK COMPLETED" zumindest 1x vorkommt
-        const isCompleted = content.includes("TASK COMPLETED");
+        // TASK_COMPLETED nur prüfen wenn es NACH dem letzten [sf:...]-Tag steht.
+        // Sonst vergiftet ein abgeschlossener Task A den laufenden Task B,
+        // weil der kumulative Content beider Tasks "TASK COMPLETED" enthält.
+        const lastTagIndex = content.lastIndexOf(lastTag!);
+        const contentAfterTag = content.substring(lastTagIndex + lastTag!.length);
+        const isCompleted = contentAfterTag.includes("TASK COMPLETED");
         const currentStatus = isCompleted ? "completed" : "executing";
 
         const broadcastData = {
