@@ -183,6 +183,12 @@ export function activate(context: vscode.ExtensionContext) {
     app.post('/update', (req, res) => {
         const { title = "Default Conversation", content } = req.body;
         
+        // Silently drop empty content to prevent spam from old UI injectors
+        if (!content || content.trim() === "") {
+            res.json({ status: "ignored_empty" });
+            return;
+        }
+
         if (outputChannel) {
             outputChannel.appendLine(`[${new Date().toISOString()}] /update endpoint hit! Title: ${title}, Status: ${req.body.status || 'N/A'}`);
         }
@@ -199,11 +205,6 @@ export function activate(context: vscode.ExtensionContext) {
             }
         } catch (e) {
             console.error("Failed to write global debug log", e);
-        }
-
-        if (!content) {
-            res.status(400).json({ error: "Missing 'content' field" });
-            return;
         }
 
         // 1. Broadcast über WebSocket (Live-Stream für externe Appliance)
