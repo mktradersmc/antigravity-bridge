@@ -64,28 +64,19 @@ ${patchMark}
                 if (Math.abs(currentText.length - lastChatLength) > 10) { // Text wächst -> Processing
                     lastChatLength = currentText.length;
                     idleTicks = 0;
+                    const maskedContent = currentText.replace('TASK COMPLETED', 'T*** COMPLETED');
                     fetch('http://localhost:5000/update', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             title: document.title || "VS Code Auto-Title",
-                            content: currentText,
-                            status: "processing"
+                            content: maskedContent,
+                            status: maskedContent.includes("TASK COMPLETED") ? "completed" : "processing"
                         })
                     }).catch(e => {});
                 } else if (lastChatLength > 0) {
+                    // Der automatische completed-Status nach 6 Sekunden wurde deaktiviert
                     idleTicks++;
-                    if (idleTicks === 3) { // Seit 6 Sekunden keine Änderung -> Finished
-                        fetch('http://localhost:5000/update', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                title: document.title || "VS Code Auto-Title",
-                                content: currentText,
-                                status: "completed"
-                            })
-                        }).catch(e => {});
-                    }
                 }
             }
         } catch(e) {}

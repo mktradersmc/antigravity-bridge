@@ -61,7 +61,7 @@ export function activate(context: vscode.ExtensionContext) {
         // Sende Initial-Event an Appliance über WebSocket
         broadcast({
             type: "task_started",
-            status: "started",
+            status: "executing",
             command: text,
             content: text,
             timestamp: new Date().toISOString(),
@@ -91,7 +91,7 @@ export function activate(context: vscode.ExtensionContext) {
             
             // Rückgabe im 1:1 API Format der Original-Erweiterung
             res.json({ 
-                status: "queued", 
+                status: "executing", 
                 position: 1, 
                 usage: { 
                     remoteCommands: stats.remoteCommands, 
@@ -171,6 +171,10 @@ export function activate(context: vscode.ExtensionContext) {
             const safeTitle = title.replace(/[^a-z0-9]/gi, '_');
             const logPath = path.join(rootPath, `content_log_${safeTitle}.txt`);
             fs.appendFileSync(logPath, content + "\n");
+            
+            // 3. Logge alle JSON-Nachrichten
+            const jsonLogPath = path.join(rootPath, `update_messages.log`);
+            fs.appendFileSync(jsonLogPath, JSON.stringify(req.body) + "\n");
         }
 
         res.json({ status: "received" });
