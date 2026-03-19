@@ -2,7 +2,7 @@
   "name": "antigravity-bridge",
   "displayName": "Antigravity Bridge",
   "description": "Minimalistischer VS Code Server auf Port 6000 zur Steuerung von Antigravity",
-  "version": "1.0.25",
+  "version": "1.0.26",
   "publisher": "local",
   "repository": {
     "type": "git",
