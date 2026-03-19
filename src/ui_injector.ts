@@ -36,14 +36,14 @@ export function patchWorkbenchHtml(outputChannel?: vscode.OutputChannel) {
         let html = fs.readFileSync(targetPath, 'utf8');
 
         // Verhindern, dass wir mehrfach (die neueste Version) patchen
-        const patchMark = "<!-- Antigravity Bridge Auto-Runner v1.0.26 -->";
+        const patchMark = "<!-- Antigravity Bridge Auto-Runner v1.0.27 -->";
         if (html.includes(patchMark)) {
-            log("Antigravity Bridge: Workbench is already patched with v1.0.26.");
+            log("Antigravity Bridge: Workbench is already patched with v1.0.27.");
             return;
         }
 
         // Altes Script entfernen, falls vorhanden
-        const oldPatchRegex = /<!-- Antigravity Bridge Auto-Runner v1\.0\.(2|13|14|15|16|17|18|19|20|21|22|23|24|25) -->[\s\S]*?<\/script>/g;
+        const oldPatchRegex = /<!-- Antigravity Bridge Auto-Runner v1\.0\.(2|13|14|15|16|17|18|19|20|21|22|23|24|25|26) -->[\s\S]*?<\/script>/g;
         if (oldPatchRegex.test(html)) {
             html = html.replace(oldPatchRegex, '');
             log("Antigravity Bridge: Removed old UI injector patch.");
@@ -68,9 +68,9 @@ ${patchMark}
 (function() {
     console.log("[Antigravity Bridge] Autonomous UI Injector loaded successfully.");
 
+    let lastText = "";
     let lastByteSize = 0;
     let idleTicks = 0;
-    let initialCompletedCount = -1;
     
     // Optischer Polling-Indikator (Visual Feedback)
     let indicator = document.createElement('div');
@@ -112,32 +112,34 @@ ${patchMark}
                 
                 // Kontext-Wechsel oder Chat Clear detektieren
                 if (currentByteSize < lastByteSize - 20) {
+                    lastText = "";
                     lastByteSize = 0;
-                    initialCompletedCount = -1;
                 }
 
-                if (currentByteSize !== lastByteSize) {
+                if (currentText.length > lastText.length) {
+                    const newText = currentText.substring(lastText.length).trim();
+                    lastText = currentText;
                     lastByteSize = currentByteSize;
                     idleTicks = 0;
                     
-                    const completedMatches = currentText.match(/TASK COMPLETED/g);
-                    const currentCompletedCount = completedMatches ? completedMatches.length : 0;
-                    
-                    if (initialCompletedCount === -1) {
-                        initialCompletedCount = currentCompletedCount;
+                    if (newText.length > 0) {
+                        // Logge nur den NEUEN content
+                        console.log("[Antigravity Chat] " + newText);
+                        
+                        // Checke, ob der Chat GANZ am Ende ein TASK COMPLETED hat
+                        // Wir erlauben Whitespace oder Newlines am Ende
+                        const isCompleted = /TASK COMPLETED\s*$/.test(currentText);
+                        
+                        fetch('http://127.0.0.1:5000/update', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                title: document.title || "VS Code Auto-Title",
+                                content: "", // Content MUSS leer bleiben!
+                                status: isCompleted ? "completed" : "processing"
+                            })
+                        }).catch(e => {});
                     }
-                    
-                    const isCompleted = currentCompletedCount > initialCompletedCount;
-                    
-                    fetch('http://127.0.0.1:5000/update', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            title: document.title || "VS Code Auto-Title",
-                            content: "[UI Injector Update - Payload masked]", // Dummy string to satisfy backend validator while keeping logs clean
-                            status: isCompleted ? "completed" : "processing"
-                        })
-                    }).catch(e => {});
                 } else if (lastByteSize > 0) {
                     // Der automatische completed-Status nach 6 Sekunden wurde deaktiviert
                     idleTicks++;
