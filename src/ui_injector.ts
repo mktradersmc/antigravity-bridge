@@ -36,14 +36,14 @@ export function patchWorkbenchHtml(outputChannel?: vscode.OutputChannel) {
         let html = fs.readFileSync(targetPath, 'utf8');
 
         // Verhindern, dass wir mehrfach (die neueste Version) patchen
-        const patchMark = "<!-- Antigravity Bridge Auto-Runner v1.0.27 -->";
+        const patchMark = "<!-- Antigravity Bridge Auto-Runner v1.0.28 -->";
         if (html.includes(patchMark)) {
-            log("Antigravity Bridge: Workbench is already patched with v1.0.27.");
+            log("Antigravity Bridge: Workbench is already patched with v1.0.28.");
             return;
         }
 
         // Altes Script entfernen, falls vorhanden
-        const oldPatchRegex = /<!-- Antigravity Bridge Auto-Runner v1\.0\.(2|13|14|15|16|17|18|19|20|21|22|23|24|25|26) -->[\s\S]*?<\/script>/g;
+        const oldPatchRegex = /<!-- Antigravity Bridge Auto-Runner v1\.0\.(2|13|14|15|16|17|18|19|20|21|22|23|24|25|26|27) -->[\s\S]*?<\/script>/g;
         if (oldPatchRegex.test(html)) {
             html = html.replace(oldPatchRegex, '');
             log("Antigravity Bridge: Removed old UI injector patch.");
@@ -135,7 +135,7 @@ ${patchMark}
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
                                 title: document.title || "VS Code Auto-Title",
-                                content: "", // Content MUSS leer bleiben!
+                                content: newText,
                                 status: isCompleted ? "completed" : "processing"
                             })
                         }).catch(e => {});
