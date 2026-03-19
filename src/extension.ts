@@ -231,6 +231,14 @@ export function activate(context: vscode.ExtensionContext) {
         const lastTag = sfTagMatch ? sfTagMatch[sfTagMatch.length - 1] : null;
         const parsedCommandId = lastTag ? lastTag.slice(4, -1) : null;
 
+        // GUARD: Ohne command_id kein Broadcast — Content gehört nicht zu einem
+        // SpecForge-Task. Alte Chat-Verläufe mit "TASK COMPLETED" würden sonst
+        // fälschlich laufende Tasks als abgeschlossen markieren.
+        if (!parsedCommandId) {
+            res.json({ status: "ignored_no_command_id" });
+            return;
+        }
+
         // Neues Verhalten nach Benutzer-Wunsch: Sofort "completed", wenn "TASK COMPLETED" zumindest 1x vorkommt
         const isCompleted = content.includes("TASK COMPLETED");
         const currentStatus = isCompleted ? "completed" : "executing";
